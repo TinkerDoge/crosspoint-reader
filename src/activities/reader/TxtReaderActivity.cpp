@@ -56,6 +56,13 @@ void TxtReaderActivity::onExit() {
     }
   }
 
+  // Record the last-known book progress for the Stats screen.
+  if (txt && totalPages > 0) {
+    uint8_t pct = static_cast<uint8_t>((currentPage + 1) * 100 / totalPages);
+    if (pct > 100) pct = 100;
+    READING_STATS.recordProgress(txt->getPath(), pct);
+  }
+
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 

@@ -4,6 +4,7 @@
 #include <ctime>
 #include <algorithm>
 #include "JsonSettingsIO.h"
+#include "util/ReadingStatsAnalytics.h"
 
 ReadingStatsStore ReadingStatsStore::instance;
 
@@ -23,11 +24,10 @@ void ReadingStatsStore::addMinutes(uint32_t minutes, const std::string& bookPath
   
   lifetimeMinutes += minutes;
 
-  // Update best streak
-  uint32_t currentStreak = getCurrentStreak();
-  if (currentStreak > bestStreak) {
-    bestStreak = currentStreak;
-  }
+  // Recompute bestStreak from history (full recompute — cheap, history is small).
+  // This replaces the old `max(bestStreak, currentStreak)` heuristic and ensures
+  // previously inflated values self-heal.
+  bestStreak = ReadingStatsAnalytics::getBestStreak(history);
 
   saveToFile();
 }
@@ -41,12 +41,28 @@ uint32_t ReadingStatsStore::getTodayMinutes() const {
 }
 
 uint32_t ReadingStatsStore::getCurrentStreak() const {
-  // Logic to calculate streak based on history
-  // history is assumed to be sorted by date
-  if (history.empty()) return 0;
-  
-  // TODO: More robust date comparison
-  return history.size(); // Simplified
+  // Delegate to the single source of truth in ReadingStatsAnalytics.
+  std::string today = const_cast<ReadingStatsStore*>(this)->getTodayDate();
+  return ReadingStatsAnalytics::getCurrentStreak(history, today);
+}
+
+uint8_t ReadingStatsStore::getBookPercent(const std::string& path) const {
+  auto it = bookLastPercent.find(path);
+  return (it != bookLastPercent.end()) ? it->second : 0;
+}
+
+void ReadingStatsStore::recordProgress(const std::string& path, uint8_t percent) {
+  // Clamp to 0–100.
+  if (percent > 100) percent = 100;
+
+  // Return early if unchanged (write-throttling).
+  auto it = bookLastPercent.find(path);
+  if (it != bookLastPercent.end() && it->second == percent) {
+    return;
+  }
+
+  bookLastPercent[path] = percent;
+  saveToFile();
 }
 
 std::vector<ReadingDayStats> ReadingStatsStore::getStatsForMonth(int month, int year) const {
@@ -93,5 +109,10 @@ bool ReadingStatsStore::loadFromFile() {
   if (json.length() == 0) {
     return false;
   }
-  return JsonSettingsIO::loadReadingStats(*this, json.c_str());
+  bool ok = JsonSettingsIO::loadReadingStats(*this, json.c_str());
+  if (ok) {
+    // Recompute bestStreak from history so any previously persisted bad value self-heals.
+    bestStreak = ReadingStatsAnalytics::getBestStreak(history);
+  }
+  return ok;
 }

@@ -58,6 +58,13 @@ void XtcReaderActivity::onExit() {
     }
   }
 
+  // Record the last-known book progress for the Stats screen.
+  if (xtc && xtc->getPageCount() > 0) {
+    uint8_t pct = static_cast<uint8_t>((currentPage + 1) * 100 / xtc->getPageCount());
+    if (pct > 100) pct = 100;
+    READING_STATS.recordProgress(xtc->getPath(), pct);
+  }
+
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
   xtc.reset();

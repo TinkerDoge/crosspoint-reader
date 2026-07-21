@@ -41,7 +41,7 @@ void ReadingStatsActivity::loadStats() {
       stat.path = rb.path;
       stat.title = rb.title;
       stat.totalMinutes = bookMinutesTotal[rb.path];
-      stat.progressPercent = 0; // TODO: Load from progress.bin
+      stat.progressPercent = READING_STATS.getBookPercent(rb.path);
       startedBooks.push_back(stat);
     }
   }

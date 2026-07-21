@@ -44,6 +44,15 @@ bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore& store, const char
     }
   }
 
+  // Per-book last-known reading progress (additive optional key).
+  const auto& bookProg = store.getBookProgress();
+  if (!bookProg.empty()) {
+    JsonObject bpObj = doc["bookProgress"].to<JsonObject>();
+    for (const auto& [bookPath, pct] : bookProg) {
+      bpObj[bookPath] = pct;
+    }
+  }
+
   String json;
   serializeJson(doc, json);
   return Storage.writeFile(path, json);
@@ -83,6 +92,15 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
     }
 
     store.history.push_back(day);
+  }
+
+  // Per-book progress (tolerant — absent key → empty map → bars show 0 until next read).
+  store.bookLastPercent.clear();
+  JsonObject bpObj = doc["bookProgress"].as<JsonObject>();
+  for (JsonPair kv : bpObj) {
+    uint8_t pct = kv.value().as<uint8_t>();
+    if (pct > 100) pct = 100;
+    store.bookLastPercent[kv.key().c_str()] = pct;
   }
 
   LOG_DBG("RSS", "Reading stats loaded from file (%zu entries)", store.history.size());

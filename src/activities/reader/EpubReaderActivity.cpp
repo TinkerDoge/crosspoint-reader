@@ -101,6 +101,13 @@ void EpubReaderActivity::onExit() {
     }
   }
 
+  // Record the last-known book progress for the Stats screen.
+  if (epub && epub->getBookSize() > 0 && section && section->pageCount > 0) {
+    const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(section->pageCount);
+    const float bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
+    READING_STATS.recordProgress(epub->getPath(), static_cast<uint8_t>(bookProgress + 0.5f));
+  }
+
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 

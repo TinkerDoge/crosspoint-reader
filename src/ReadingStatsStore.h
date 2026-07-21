@@ -30,6 +30,10 @@ class ReadingStatsStore {
   uint32_t bestStreak = 0;
   uint32_t dailyGoalMinutes = 30; // Default 30 mins
 
+  // Per-book last-known reading progress (0–100%).
+  // Populated when a reader exits via recordProgress().
+  std::map<std::string, uint8_t> bookLastPercent;
+
   friend bool JsonSettingsIO::loadReadingStats(ReadingStatsStore&, const char*);
 
  public:
@@ -42,6 +46,13 @@ class ReadingStatsStore {
   uint32_t getBestStreak() const { return bestStreak; }
   uint32_t getDailyGoalMinutes() const { return dailyGoalMinutes; }
   void setDailyGoalMinutes(uint32_t mins) { dailyGoalMinutes = mins; saveToFile(); }
+
+  // Per-book progress (0–100), returns 0 if absent.
+  uint8_t getBookPercent(const std::string& path) const;
+  // Record the last-known reading progress for a book.  Clamps to 0–100,
+  // returns early if unchanged (write-throttling), else updates and saves.
+  void recordProgress(const std::string& path, uint8_t percent);
+  const std::map<std::string, uint8_t>& getBookProgress() const { return bookLastPercent; }
 
   std::vector<ReadingDayStats> getStatsForMonth(int month, int year) const;
   uint32_t getTodayMinutes() const;

@@ -1,8 +1,19 @@
 # File Formats
 
+> [!WARNING]
+> **These ImHex patterns are out of date.** The shipping code uses `book.bin` **version 5**
+> (`BOOK_CACHE_VERSION`, [lib/Epub/Epub/BookMetadataCache.cpp:12](../lib/Epub/Epub/BookMetadataCache.cpp#L12))
+> and `section.bin` **version 19** (`SECTION_FILE_VERSION`,
+> [lib/Epub/Epub/Section.cpp:13](../lib/Epub/Epub/Section.cpp#L13)). The `section.bin` header below also
+> predates several current fields (`hyphenationEnabled`, `embeddedStyle`, `imageRendering`, paragraph
+> alignment, anchor-map offset). Until these patterns are rewritten, treat the serialization code as the
+> source of truth: `writeSectionFileHeader()` in Section.cpp and `buildBookBin()` in BookMetadataCache.cpp.
+> See [firmware-index.md](firmware-index.md#caching-model-all-formats) for the current field list and
+> [improvement-backlog.md](improvement-backlog.md#documentation-drift-p2p3) for the tracking entry.
+
 ## `book.bin`
 
-### Version 3
+### Version 3 (historical — current is v5)
 
 ImHex Pattern:
 
@@ -104,7 +115,7 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
-### Version 8
+### Version 8 (historical — current is v19)
 
 ImHex Pattern:
 

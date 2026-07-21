@@ -4,6 +4,13 @@ CrossPoint is firmware for the Xteink X4 (unaffiliated with Xteink), built with 
 
 At a high level, it is firmware that uses an activity-driven application architecture loop with persistent settings/state, SD-card-first caching, and a rendering pipeline optimized for e-ink constraints.
 
+> [!NOTE]
+> This page is a narrative overview. For a file-by-file functional index (what every module does and where
+> to change it), see [firmware-index.md](../firmware-index.md). For the exact activity threading/navigation
+> model, see [activity-manager.md](../activity-manager.md) — the `exitActivity()`/`enterNewActivity()` and
+> `ActivityWithSubactivity` patterns mentioned below are **superseded** by the stack-based `ActivityManager`
+> (`goTo*` / `startActivityForResult` / `finish`).
+
 ## System at a glance
 
 ```mermaid
@@ -46,11 +53,13 @@ In each loop iteration, the firmware updates input, runs the active activity, ha
 
 ## Activity model
 
-Activities are screen-level controllers deriving from `src/activities/Activity.h`.
-Some flows use `src/activities/ActivityWithSubactivity.h` to host nested activities.
+Activities are screen-level controllers deriving from `src/activities/Activity.h`, navigated by the
+`ActivityManager` singleton (a `currentActivity` plus an activity stack). Nested flows use
+`startActivityForResult()` / `setResult()` / `finish()` — the former `ActivityWithSubactivity` base class has
+been removed.
 
 - `onEnter()` and `onExit()` manage setup/teardown
-- `loop()` handles per-frame behavior
+- `loop()` handles per-frame behavior; `render(RenderLock&&)` draws on the shared render task
 - `skipLoopDelay()` and `preventAutoSleep()` are used by long-running flows (for example web server mode)
 
 Top-level activity groups:
@@ -141,8 +150,9 @@ Typical persisted areas on SD:
     progress.bin
     cover.bmp
     sections/*.bin
-  settings.bin
-  state.bin
+  settings.json      # legacy settings.bin auto-migrated to JSON on first load
+  state.json         # legacy state.bin auto-migrated
+  recent.json
 ```
 
 For binary cache formats, see `docs/file-formats.md`.
