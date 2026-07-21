@@ -44,16 +44,17 @@ void EpdFont::getTextBounds(const char* string, const int startX, const int star
       continue;
     }
 
-    const int raiseBy = isCombining ? combiningMark::raiseAboveBase(glyph->top, glyph->height, lastBaseTop) : 0;
+    const combiningMark::Anchor anchor = combiningMark::anchorFor(cp);
+    const int raiseBy = isCombining ? combiningMark::raiseAboveBase(anchor, glyph->top, glyph->height, lastBaseTop) : 0;
 
     if (!isCombining && prevCp != 0) {
       const auto kernFP = getKerning(prevCp, cp);  // 4.4 fixed-point kern
       lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);
     }
 
-    const int glyphBaseX =
-        isCombining ? combiningMark::centerOver(lastBaseX, lastBaseLeft, lastBaseWidth, glyph->left, glyph->width)
-                    : lastBaseX;
+    const int glyphBaseX = isCombining ? combiningMark::anchorOver(anchor, lastBaseX, lastBaseLeft, lastBaseWidth,
+                                                                   glyph->left, glyph->width)
+                                       : lastBaseX;
     const int glyphBaseY = startY - raiseBy;
 
     *minX = std::min(*minX, glyphBaseX + glyph->left);
@@ -101,6 +102,9 @@ static uint8_t lookupKernClass(const EpdKernClassEntry* entries, const uint16_t 
 }
 
 int8_t EpdFont::getKerning(const uint32_t leftCp, const uint32_t rightCp) const {
+  if (utf8IsCjkBreakable(leftCp) || utf8IsCjkBreakable(rightCp)) {
+    return 0;
+  }
   if (!data->kernMatrix) {
     return 0;
   }
@@ -153,22 +157,30 @@ uint32_t EpdFont::applyLigatures(uint32_t cp, const char*& text) const {
 
 const EpdGlyph* EpdFont::getGlyph(const uint32_t cp) const {
   const int count = data->intervalCount;
-  if (count == 0) return nullptr;
+  if (count == 0 && !data->glyphMissHandler) return nullptr;
 
-  const EpdUnicodeInterval* intervals = data->intervals;
-  const auto* end = intervals + count;
+  if (count > 0) {
+    const EpdUnicodeInterval* intervals = data->intervals;
+    const auto* end = intervals + count;
 
-  // upper_bound: range lookup. Finds the first interval with first > cp, so the
-  // interval just before it is the last one with first <= cp. That's the only
-  // candidate that could contain cp. Then we verify cp <= candidate.last.
-  const auto it = std::upper_bound(
-      intervals, end, cp, [](uint32_t value, const EpdUnicodeInterval& interval) { return value < interval.first; });
+    // upper_bound: range lookup. Finds the first interval with first > cp, so the
+    // interval just before it is the last one with first <= cp. That's the only
+    // candidate that could contain cp. Then we verify cp <= candidate.last.
+    const auto it = std::upper_bound(
+        intervals, end, cp, [](uint32_t value, const EpdUnicodeInterval& interval) { return value < interval.first; });
 
-  if (it != intervals) {
-    const auto& interval = *(it - 1);
-    if (cp <= interval.last) {
-      return &data->glyph[interval.offset + (cp - interval.first)];
+    if (it != intervals) {
+      const auto& interval = *(it - 1);
+      if (cp <= interval.last) {
+        return &data->glyph[interval.offset + (cp - interval.first)];
+      }
     }
+  }
+
+  // Codepoint not in interval table — try on-demand loading (SD card fonts).
+  if (data->glyphMissHandler) {
+    const EpdGlyph* loaded = data->glyphMissHandler(data->glyphMissCtx, cp);
+    if (loaded) return loaded;
   }
 
   if (cp != REPLACEMENT_GLYPH) {

@@ -1,5 +1,8 @@
 #include "Logging.h"
 
+#include <BoardConfig.h>
+#include <esp_rom_sys.h>
+
 #include <string>
 
 #define MAX_ENTRY_LEN 256
@@ -42,7 +45,7 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
   {
     unsigned long ms = millis();
     int len = snprintf(c, sizeof(buf), "[%lu] [%s] [%s] ", ms, level, origin);
-    // erro while writing => return
+    // error while writing => return
     if (len < 0) {
       va_end(args);
       return;
@@ -59,9 +62,16 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
     }
   }
   va_end(args);
+#if FREEINK_LOG_TRANSPORT == FREEINK_LOG_TRANSPORT_ROM_PRINTF
+  // IDF/ROM console path for boards monitored over USB-Serial-JTAG, where the
+  // HWCDC `operator bool` reads false under `pio device monitor` and logs would
+  // otherwise be silently dropped (e.g. Sticky).
+  esp_rom_printf("%s", buf);
+#else
   if (logSerial) {
     logSerial.print(buf);
   }
+#endif
   addToLogRingBuffer(buf);
 }
 

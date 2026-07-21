@@ -141,7 +141,7 @@ void TarotActivity::render(RenderLock&& lock) {
 void TarotActivity::renderPrompt(const ThemeMetrics& metrics, int pageWidth, int pageHeight) {
     renderer.drawCenteredText(UI_12_FONT_ID, pageHeight / 3, tr(STR_TAROT_TITLE), true, EpdFontFamily::BOLD);
     
-    FsFile file;
+    HalFile file;
     if (Storage.openFileForRead("TAROT", assets.getBackImagePath(), file)) {
         Bitmap bitmap(file, true);
         if (bitmap.parseHeaders() == BmpReaderError::Ok) {
@@ -170,7 +170,7 @@ void TarotActivity::renderMain(const ThemeMetrics& metrics, int pageWidth, int p
         int x = startX + i * (thumbW + thumbSpacing);
         int8_t cardId = history[i + 1];
         
-        FsFile file;
+        HalFile file;
         if (Storage.openFileForRead("TAROT", assets.getCardThumbPath(cardId), file)) {
             Bitmap bitmap(file, true);
             if (bitmap.parseHeaders() == BmpReaderError::Ok) {
@@ -187,7 +187,7 @@ void TarotActivity::renderMain(const ThemeMetrics& metrics, int pageWidth, int p
 
     // 2. Draw Main Card
     if (currentCardId != -1) {
-        FsFile file;
+        HalFile file;
         if (Storage.openFileForRead("TAROT", assets.getCardImagePath(currentCardId), file)) {
             Bitmap bitmap(file, true);
             if (bitmap.parseHeaders() == BmpReaderError::Ok) {
@@ -225,11 +225,11 @@ void TarotActivity::renderMain(const ThemeMetrics& metrics, int pageWidth, int p
         renderer.drawLine(boxX + 30, boxY + 55, boxX + boxW - 30, boxY + 55, 1, true);
 
         // Correctly wrap the meaning text
-        auto lines = renderer.wrappedText(BOOKERLY_14_FONT_ID, m.meaning.c_str(), boxW - 50, 6);
+        auto lines = renderer.wrappedText(NOTOSERIF_14_FONT_ID, m.meaning.c_str(), boxW - 50, 6);
         int currentY = boxY + 80;
-        int lineHeight = renderer.getLineHeight(BOOKERLY_14_FONT_ID) + 4;
+        int lineHeight = renderer.getLineHeight(NOTOSERIF_14_FONT_ID) + 4;
         for (const auto& line : lines) {
-            renderer.drawText(BOOKERLY_14_FONT_ID, boxX + 25, currentY, line.c_str());
+            renderer.drawText(NOTOSERIF_14_FONT_ID, boxX + 25, currentY, line.c_str());
             currentY += lineHeight;
         }
     }
@@ -261,7 +261,7 @@ void TarotActivity::renderGrid(const ThemeMetrics& metrics, int pageWidth, int p
         int x = startX + col * (thumbW + spacingX);
         int y = startY + row * (thumbH + spacingY);
 
-        FsFile file;
+        HalFile file;
         if (Storage.openFileForRead("TAROT", assets.getCardThumbPath(cardId), file)) {
             Bitmap bitmap(file, true);
             if (bitmap.parseHeaders() == BmpReaderError::Ok) {
