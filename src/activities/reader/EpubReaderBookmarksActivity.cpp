@@ -1,13 +1,11 @@
 #include "EpubReaderBookmarksActivity.h"
 
 #include <GfxRenderer.h>
-#include <HalStorage.h>
 #include <I18n.h>
-#include <JsonSettingsIO.h>
-#include <util/BookmarkUtil.h>
 
 #include <algorithm>
 
+#include "../../util/BookmarkFile.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -26,19 +24,7 @@ void EpubReaderBookmarksActivity::onEnter() {
     return;
   }
 
-  const std::string path = BookmarkUtil::getBookmarkPath(epubPath);
-  if (Storage.exists(path.c_str())) {
-    String json = Storage.readFile(path.c_str());
-    if (json.isEmpty()) {
-      LOG_ERR("EPB", "Failed to load bookmarks from %s. Empty bookmark file", path.c_str());
-      bookmarks.clear();
-      bookmarks.shrink_to_fit();
-    } else {
-      JsonSettingsIO::loadBookmarks(bookmarks, json.c_str());
-    }
-  } else {
-    LOG_DBG("EPB", "No bookmark file found at %s, starting with empty bookmarks", path.c_str());
-    bookmarks.clear();
+  if (!BookmarkFile::load(epubPath, bookmarks)) {
     bookmarks.shrink_to_fit();
   }
   LOG_DBG("EPB", "Loaded %d bookmarks for book: %s", static_cast<int>(bookmarks.size()), epubPath.c_str());
@@ -70,9 +56,13 @@ void EpubReaderBookmarksActivity::loop() {
     result.xpath = bookmark.xpath;
     result.percentage = bookmark.percentage;
     result.hasSavedProgress = true;
+    result.hasVisibleTextOffset = bookmark.hasVisibleTextOffset;
+    result.visibleTextOffset = bookmark.visibleTextOffset;
+    // The offset is spine-relative, so carry its spine even when the legacy page hints below
+    // are stale. The reader validates the index.
+    result.spineIndex = bookmark.computedSpineIndex;
     if (bookmark.computedChapterPageCount > 0 && bookmark.computedChapterProgress < bookmark.computedChapterPageCount &&
         bookmark.computedSpineIndex < epub->getSpineItemsCount()) {
-      result.spineIndex = bookmark.computedSpineIndex;
       result.page = bookmark.computedChapterProgress;
       result.totalPages = bookmark.computedChapterPageCount;
     }
@@ -187,9 +177,7 @@ void EpubReaderBookmarksActivity::loop() {
 
 void EpubReaderBookmarksActivity::deleteSelectedBookmark() {
   bookmarks.erase(bookmarks.begin() + selectorIndex);
-  const std::string path = BookmarkUtil::getBookmarkPath(epubPath);
-  Storage.mkdir(BookmarkUtil::getBookmarksDir().c_str());
-  if (!JsonSettingsIO::saveBookmarks(bookmarks, path.c_str())) {
+  if (!BookmarkFile::save(epubPath, bookmarks)) {
     LOG_ERR("EPB", "Failed to save bookmarks after delete");
   }
 

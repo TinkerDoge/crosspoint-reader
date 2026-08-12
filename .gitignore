@@ -31,3 +31,9 @@ lib/EpdFont/scripts/output/
 !.claude/skills/
 # local reference clone of upstream (not part of the firmware)
 mainReference/
+/managed_components
+/.dummy
+/CMakeLists.txt
+/dependencies.lock
+/sdkconfig.*
+sdkconfig.sticky

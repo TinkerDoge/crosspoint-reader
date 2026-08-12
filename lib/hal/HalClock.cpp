@@ -75,13 +75,40 @@ bool HalClock::syncFromNTP() {
   }
 
   LOG_INF("CLK", "Starting NTP sync...");
+
+  // Stop any previous SNTP session to avoid state conflicts.
+  esp_sntp_stop();
+
+  // Configure and restart SNTP.
   configTzTime("UTC0", "pool.ntp.org", "time.nist.gov");
+
+  // Give the SNTP task one tick to begin.
+  delay(50);
 
   // Wait for SNTP sync to complete (up to 5 seconds)
   constexpr int maxAttempts = 50;
+  sntp_sync_status_t lastStatus = SNTP_SYNC_STATUS_RESET;
+  int statusChanges = 0;
+
   for (int i = 0; i < maxAttempts; i++) {
-    if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+    sntp_sync_status_t status = sntp_get_sync_status();
+    if (status != lastStatus) {
+      LOG_DBG("CLK", "SNTP status changed: %d -> %d (attempt %d/%d)", (int)lastStatus, (int)status, i + 1,
+              maxAttempts);
+      lastStatus = status;
+      statusChanges++;
+    }
+
+    if (status == SNTP_SYNC_STATUS_COMPLETED) {
       time_t now = time(nullptr);
+      LOG_INF("CLK", "SNTP sync completed. System epoch: %lld", (long long)now);
+
+      // Reject epochs that predate any supported firmware build.
+      if (now < 1700000000) {
+        LOG_ERR("CLK", "SNTP returned invalid epoch: %lld (before 2024), refusing to set RTC", (long long)now);
+        return false;
+      }
+
       struct tm timeinfo;
       gmtime_r(&now, &timeinfo);
 
@@ -93,7 +120,11 @@ bool HalClock::syncFromNTP() {
       dt.minute = static_cast<uint8_t>(timeinfo.tm_min);
       dt.second = static_cast<uint8_t>(timeinfo.tm_sec);
       dt.weekday = static_cast<uint8_t>(timeinfo.tm_wday);
-      if (_sdkRtc.set(dt)) {
+
+      const bool writeOk = _sdkRtc.set(dt);
+      LOG_INF("CLK", "RTC write %s", writeOk ? "succeeded" : "FAILED");
+
+      if (writeOk) {
         _lastPollMs = 0;
         _cachedHour = dt.hour;
         _cachedMinute = dt.minute;
@@ -107,6 +138,7 @@ bool HalClock::syncFromNTP() {
     delay(100);
   }
 
-  LOG_ERR("CLK", "NTP sync timed out");
+  LOG_ERR("CLK", "NTP sync timed out after %d attempts (status=%d, changes=%d)", maxAttempts, (int)lastStatus,
+          statusChanges);
   return false;
 }
