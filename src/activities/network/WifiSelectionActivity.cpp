@@ -398,6 +398,15 @@ void WifiSelectionActivity::checkConnectionStatus() {
             WiFi.RSSI());
 #endif
 
+    // Sync the system clock from NTP whenever it's unset. Reading stats and the
+    // heatmap read time(nullptr), and on X4 (no RTC) this is the only way that
+    // clock ever gets set — without it dates show as 01/1970. Skipped once the
+    // clock holds a valid epoch, so the ~5s blocking wait only happens when
+    // needed (e.g. first connect after a cold boot).
+    if (!HalClock::systemTimeValid()) {
+      halClock.syncSystemTimeFromNTP();
+    }
+
     // Sync RTC from NTP on the first successful WiFi connection only. The DS3231
     // drifts ~2 ppm so one sync is enough; users can force a re-sync from
     // Settings > Customise Status Bar > Sync clock now.

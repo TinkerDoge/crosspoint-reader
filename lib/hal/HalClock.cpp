@@ -3,9 +3,16 @@
 #include <Logging.h>
 #include <WiFi.h>
 #include <esp_sntp.h>
+#include <sys/time.h>
 #include <time.h>
 
 HalClock halClock;  // Singleton instance
+
+namespace {
+// Epochs below this predate any supported firmware build (2023-11-14) and mean
+// the clock was never set — time(nullptr) starts near 0 after boot.
+constexpr time_t MIN_VALID_EPOCH = 1700000000;
+}  // namespace
 
 void HalClock::begin() {
   _available = _sdkRtc.begin();
@@ -66,9 +73,9 @@ bool HalClock::formatTime(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHou
   return true;
 }
 
-bool HalClock::syncFromNTP() {
-  if (!_available) return false;
+bool HalClock::systemTimeValid() { return time(nullptr) >= MIN_VALID_EPOCH; }
 
+bool HalClock::syncSystemTimeFromNTP() {
   if (WiFi.status() != WL_CONNECTED) {
     LOG_ERR("CLK", "WiFi not connected, cannot sync NTP");
     return false;
@@ -100,40 +107,15 @@ bool HalClock::syncFromNTP() {
     }
 
     if (status == SNTP_SYNC_STATUS_COMPLETED) {
-      time_t now = time(nullptr);
+      const time_t now = time(nullptr);
       LOG_INF("CLK", "SNTP sync completed. System epoch: %lld", (long long)now);
 
       // Reject epochs that predate any supported firmware build.
-      if (now < 1700000000) {
-        LOG_ERR("CLK", "SNTP returned invalid epoch: %lld (before 2024), refusing to set RTC", (long long)now);
+      if (now < MIN_VALID_EPOCH) {
+        LOG_ERR("CLK", "SNTP returned invalid epoch: %lld (before 2024)", (long long)now);
         return false;
       }
-
-      struct tm timeinfo;
-      gmtime_r(&now, &timeinfo);
-
-      Rtc::DateTime dt;
-      dt.year = static_cast<uint16_t>(timeinfo.tm_year + 1900);
-      dt.month = static_cast<uint8_t>(timeinfo.tm_mon + 1);
-      dt.day = static_cast<uint8_t>(timeinfo.tm_mday);
-      dt.hour = static_cast<uint8_t>(timeinfo.tm_hour);
-      dt.minute = static_cast<uint8_t>(timeinfo.tm_min);
-      dt.second = static_cast<uint8_t>(timeinfo.tm_sec);
-      dt.weekday = static_cast<uint8_t>(timeinfo.tm_wday);
-
-      const bool writeOk = _sdkRtc.set(dt);
-      LOG_INF("CLK", "RTC write %s", writeOk ? "succeeded" : "FAILED");
-
-      if (writeOk) {
-        _lastPollMs = 0;
-        _cachedHour = dt.hour;
-        _cachedMinute = dt.minute;
-        _hasCachedTime = true;
-        LOG_INF("CLK", "RTC set to %04u-%02u-%02u %02u:%02u:%02u UTC", dt.year, dt.month, dt.day, dt.hour, dt.minute,
-                dt.second);
-        return true;
-      }
-      return false;
+      return true;
     }
     delay(100);
   }
@@ -141,4 +123,76 @@ bool HalClock::syncFromNTP() {
   LOG_ERR("CLK", "NTP sync timed out after %d attempts (status=%d, changes=%d)", maxAttempts, (int)lastStatus,
           statusChanges);
   return false;
+}
+
+bool HalClock::syncFromNTP() {
+  if (!_available) return false;
+
+  // Ensure the system clock is valid before writing it to the RTC. Skips the
+  // blocking SNTP round-trip when the clock was already set (e.g. by an
+  // earlier syncSystemTimeFromNTP() on this WiFi connection).
+  if (!systemTimeValid() && !syncSystemTimeFromNTP()) return false;
+
+  const time_t now = time(nullptr);
+  struct tm timeinfo;
+  gmtime_r(&now, &timeinfo);
+
+  Rtc::DateTime dt;
+  dt.year = static_cast<uint16_t>(timeinfo.tm_year + 1900);
+  dt.month = static_cast<uint8_t>(timeinfo.tm_mon + 1);
+  dt.day = static_cast<uint8_t>(timeinfo.tm_mday);
+  dt.hour = static_cast<uint8_t>(timeinfo.tm_hour);
+  dt.minute = static_cast<uint8_t>(timeinfo.tm_min);
+  dt.second = static_cast<uint8_t>(timeinfo.tm_sec);
+  dt.weekday = static_cast<uint8_t>(timeinfo.tm_wday);
+
+  const bool writeOk = _sdkRtc.set(dt);
+  LOG_INF("CLK", "RTC write %s", writeOk ? "succeeded" : "FAILED");
+
+  if (writeOk) {
+    _lastPollMs = 0;
+    _cachedHour = dt.hour;
+    _cachedMinute = dt.minute;
+    _hasCachedTime = true;
+    LOG_INF("CLK", "RTC set to %04u-%02u-%02u %02u:%02u:%02u UTC", dt.year, dt.month, dt.day, dt.hour, dt.minute,
+            dt.second);
+    return true;
+  }
+  return false;
+}
+
+bool HalClock::setSystemTimeFromRtc() {
+  if (!_available) return false;
+
+  Rtc::DateTime dt;
+  if (!_sdkRtc.now(dt)) return false;
+
+  if (dt.year < 2024 || dt.year > 2100 || dt.month < 1 || dt.month > 12 || dt.day < 1 || dt.day > 31) {
+    LOG_ERR("CLK", "RTC time implausible (%04u-%02u-%02u), not setting system clock", dt.year, dt.month, dt.day);
+    return false;
+  }
+
+  // The RTC stores UTC (syncFromNTP writes gmtime), and TZ is UTC0 by default
+  // (configTzTime keeps it that way), so mktime's local-time interpretation
+  // yields the correct epoch here.
+  struct tm t = {};
+  t.tm_year = static_cast<int>(dt.year) - 1900;
+  t.tm_mon = static_cast<int>(dt.month) - 1;
+  t.tm_mday = dt.day;
+  t.tm_hour = dt.hour;
+  t.tm_min = dt.minute;
+  t.tm_sec = dt.second;
+  t.tm_isdst = -1;
+
+  const time_t epoch = mktime(&t);
+  if (epoch < MIN_VALID_EPOCH) {
+    LOG_ERR("CLK", "RTC epoch %lld below validity floor, not setting system clock", (long long)epoch);
+    return false;
+  }
+
+  const struct timeval tv = {epoch, 0};
+  settimeofday(&tv, nullptr);
+  LOG_INF("CLK", "System clock set from RTC: %04u-%02u-%02u %02u:%02u:%02u UTC", dt.year, dt.month, dt.day, dt.hour,
+          dt.minute, dt.second);
+  return true;
 }

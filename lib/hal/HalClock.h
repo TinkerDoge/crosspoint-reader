@@ -35,10 +35,28 @@ class HalClock {
   bool formatTime(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased = 48, bool use12Hour = false) const;
 
   // Sync the RTC from an NTP server. Requires WiFi to be connected.
-  // Blocks for up to ~5s while waiting for SNTP response.
-  // Returns true if the RTC was successfully updated.
+  // Blocks for up to ~5s while waiting for SNTP response (skipped if the
+  // system clock is already valid). Returns true if the RTC was successfully
+  // updated.
   //
   // Debouncing (skip if already synced once) is enforced by the caller, not here,
   // so the HAL stays free of any app-layer settings dependency.
   bool syncFromNTP();
+
+  // Sync the ESP32 system clock (time(nullptr)) from an NTP server. Requires
+  // WiFi to be connected. Works on devices WITHOUT an RTC — on X4 this is the
+  // only way the system clock (used by reading stats/heatmap) ever gets set.
+  // Blocks for up to ~5s while waiting for SNTP response.
+  // Returns true if the system clock was set to a valid epoch.
+  bool syncSystemTimeFromNTP();
+
+  // True when the ESP32 system clock holds a plausible wall-clock time
+  // (set via SNTP or restored from the RTC). No RTC hardware required.
+  static bool systemTimeValid();
+
+  // Copy the RTC time into the ESP32 system clock (settimeofday). Call once at
+  // boot so time(nullptr) is valid offline on RTC-equipped devices; without it
+  // the system clock resets to epoch on every boot and only an SNTP sync fixes
+  // it. Returns false when no RTC is present or its time is invalid.
+  bool setSystemTimeFromRtc();
 };

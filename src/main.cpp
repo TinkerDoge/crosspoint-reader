@@ -292,6 +292,10 @@ void setup() {
   powerManager.begin();
   halTiltSensor.begin();
   halClock.begin();
+  // Restore the system clock from the RTC (when present) so time(nullptr) is
+  // valid for reading stats/heatmap even before any WiFi/NTP sync. The ESP32
+  // system clock resets to epoch on every cold boot; no-op on X4 (no RTC).
+  halClock.setSystemTimeFromRtc();
 
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
 
